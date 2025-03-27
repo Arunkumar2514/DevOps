@@ -1,0 +1,12 @@
+on:
+  schedule:
+    cron: '*/1 * * * 4'
+
+job:
+  test schedule:
+      runs-on:windows-latest
+      steps:
+        name:not on thursday
+        if:github.event.schedule != '*/1 * * * 4'
+          run: echo "not today"
+        run: echo "welcome"
