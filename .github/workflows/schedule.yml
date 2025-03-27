@@ -3,7 +3,7 @@ on:
       - cron: '*/2 * * * 4'
 jobs:
     test_schedule:
-      runs-on: ubuntu-latest
+      runs-on: windows-latest
       steps:
         - name: Not on Monday or Wednesday
           if: github.event.schedule != '*/2 * * * 4'
