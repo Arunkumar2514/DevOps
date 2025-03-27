@@ -1,8 +1,7 @@
 on:
     schedule:
       - cron: '*/2 * * * 4'
-  
-  jobs:
+jobs:
     test_schedule:
       runs-on: ubuntu-latest
       steps:
