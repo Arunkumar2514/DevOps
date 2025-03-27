@@ -1,0 +1,12 @@
+{
+  "packageDirectories": [
+    {
+      "path": "delta",
+      "default": true
+    }
+  ],
+  "name": "OCRPOC",
+  "namespace": "",
+  "sfdcLoginUrl": "https://login.salesforce.com",
+  "sourceApiVersion": "59.0"
+}
