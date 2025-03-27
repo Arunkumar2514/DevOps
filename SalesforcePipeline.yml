@@ -1,0 +1,195 @@
+name: Salesforce Build Pipeline
+
+on:
+  push:
+    branches:
+      - build/QA
+      - build/UAT
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - build/QA
+      - build/UAT
+    paths:
+      - 'src/**'
+
+env:
+  USERNAME: ${{ vars.EMAIL_USERNAME }}
+  PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+  GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GIT_SERVER_URL: ${{ vars.GIT_SERVER_URL }}
+  GIT_SOURCE_BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+  GIT_TARGET_BRANCH_NAME: ${{ github.event.pull_request.base.ref }}
+
+jobs:
+  SFDX_Build_Pipeline:
+    name: SFDX Build Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+          clean: true
+      - name: Install SFDX CLI and Git Plugins
+        shell: bash
+        run: |
+          echo 'Installing sfdx cli'
+          npm install -g @salesforce/cli@latest
+          echo 'Installing sfdx git delta'
+          echo y | sfdx plugins:install sfdx-git-delta
+      - name: Get Last Successful Commit ID
+        id: get-commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = `${{ github.event_name }}` === 'pull_request' ? `${{ github.event.pull_request.base.ref }}` : `${{ github.ref_name }}`;
+            console.log(`branchName : ${branchName}`)
+            const response = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: branchName,
+              status: 'success',
+              per_page: 1
+            });
+
+            if (response.data.workflow_runs.length > 0) {
+              const lastSuccessfulCommitId = response.data.workflow_runs[0].head_sha;
+              console.log(`Last successful commit ID: ${lastSuccessfulCommitId}`);
+              return lastSuccessfulCommitId;
+            } else {
+              console.log('No successful runs found, using previous commit.');
+              const exec = require('child_process').execSync;
+              const previousCommitId = exec('git rev-parse HEAD^', { encoding: 'utf8' }).trim();
+              console.log(`Previous commit ID: ${previousCommitId}`);
+              return previousCommitId;
+            }
+          result-encoding: string 
+
+      - name: Store Last Commit ID
+        run: echo "PREV_COMMIT_ID=${{ steps.get-commit.outputs.result }}" >> $GITHUB_ENV
+      
+      - name: Generate SFDX Git Delta
+        id: deltaChanges
+        shell: pwsh
+        run: |
+          $prevCommitId = "$env:PREV_COMMIT_ID"
+
+          Write-Host "Previous Commit ID : $prevCommitId"
+
+          mkdir delta
+          sfdx sgd:source:delta --from $prevCommitId --output delta/ --generate-delta
+
+          $isChangesFound = $false
+          $srcPath = "delta/src" 
+          if (Test-Path -Path $srcPath) { 
+            $isChangesFound = $true
+          }
+          Write-host "Code Changes : $isChangesFound"
+          echo "isCodeChanges=$isChangesFound" >> $env:GITHUB_OUTPUT
+          
+      - name: Upload Delta as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: salesforce-build-artifacts
+          path: |
+            delta/**  
+            Assets/**
+            pipeline_scripts/**
+            sfdx-project.json
+    outputs:
+      isCode: ${{ steps.deltaChanges.outputs.isCodeChanges }}      
+
+  SFDX_Release_Pipeline:
+    name: SFDX Release Pipeline
+    needs: SFDX_Build_Pipeline
+    runs-on: ubuntu-latest
+    if: ${{ needs.SFDX_Build_Pipeline.outputs.isCode == 'True' }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Download Delta Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: salesforce-build-artifacts
+          path: ${{ github.workspace }}
+      - name: Install SFDX CLI and Scanner Plugins
+        shell: bash
+        run: |
+          echo 'Installing sfdx cli'
+          npm install -g @salesforce/cli@latest
+          echo 'Installing sfdx scanner'
+          sf plugins:install @salesforce/sfdx-scanner
+
+      - name: Salesforce Code Analyzer
+        if: github.event.pull_request.base.ref == 'build/QA' || github.ref_name == 'build/QA'
+        shell: bash
+        run: |  
+          sf scanner run --projectdir  delta/  --target "**/classes/**" --category "Error Prone,Security,Best Practices,Performance,Code Style" --json > apexCodeAnalyzer.json
+          sf scanner run --projectdir  delta/  --target "**/lwc/**" --json > lwcCodeAnalyzer.json 
+          sf scanner run --projectdir  delta/ --target "**/aura/**" --json > auraCodeAnalyzer.json
+      - name: 'Authenticate to  Salesforce Org'
+        shell: bash
+        run: |
+          BRANCH_NAME=$(if [[ "${{ github.event_name }}" == "pull_request" ]]; then echo "${{ github.event.pull_request.base.ref }}"; else echo "${{ github.ref_name }}"; fi)
+          TARGET_BRANCH=$(echo $BRANCH_NAME | cut -d'/' -f2) 
+          Target_Username=""
+          echo "$TARGET_BRANCH"
+          if [ "$TARGET_BRANCH" = "QA" ]; then
+            Target_Username=${{ vars.QA_USERNAME }}
+            sf org login jwt --client-id ${{ secrets.QA_CONSUMERKEY }} --jwt-key-file Assets/server.key --username  ${{ vars.QA_USERNAME }} --instance-url ${{ vars.URL }}
+          elif [ "$TARGET_BRANCH" = "UAT" ]; then
+            Target_Username=${{ vars.UAT_USERNAME }}
+            sf org login jwt --client-id ${{ secrets.UAT_CONSUMERKEY }} --jwt-key-file Assets/server.key --username  ${{ vars.UAT_USERNAME }} --instance-url ${{ vars.URL }}
+          else
+            Target_Username="NoOrg"
+            echo "No ORG founded."
+          fi 
+          echo "Target_Org=$Target_Username" >> $GITHUB_ENV
+
+      - name: Generate Github Author Mail ID
+        shell: pwsh
+        run: ./pipeline_scripts/gitAuthorMail.ps1
+
+      - name: Validation Using SFDX MDAPI
+        if: github.event_name == 'pull_request' && env.Target_Org != 'NoOrg'
+        shell: bash
+        run: |
+          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -l NoTestRun --dry-run -w 1000
+          sfdx project deploy report -r --json > deploymentOut.json
+        continue-on-error: true
+
+      - name: Deployment Using SFDX MDAPI
+        if: github.event_name == 'push' && env.Target_Org != 'NoOrg'
+        shell: bash
+        run: |
+          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -w 1000
+          sfdx project deploy report -r --json > deploymentOut.json
+        continue-on-error: true  
+
+      - name: Send Validation Status to Mail - QA
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'build/QA' && env.Target_Org != 'NoOrg'
+        shell: pwsh
+        run: ./pipeline_scripts/sendEmailValidation_QA.ps1  
+
+      - name: Send Validation Status to PR - QA
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'build/QA' && env.Target_Org != 'NoOrg'
+        shell: pwsh
+        run: ./pipeline_scripts/sendPRValidation_QA.ps1  
+
+      - name: Send Validation Status to Mail
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'build/QA' && env.Target_Org != 'NoOrg'
+        shell: pwsh
+        run: ./pipeline_scripts/sendEmailValidation.ps1
+
+      - name: Send Validation Status to PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'build/QA' && env.Target_Org != 'NoOrg'
+        shell: pwsh
+        run: ./pipeline_scripts/sendPRValidation.ps1   
+
+      - name: Send Deployment Status to Mail
+        if: github.event_name == 'push' && env.Target_Org != 'NoOrg'
+        shell: pwsh
+        run: ./pipeline_scripts/sendEmailDeployment.ps1  
