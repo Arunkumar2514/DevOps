@@ -1,2 +1,2 @@
 # DevOps
-To learn the GitHub actions
+To learn the GitHub actions.
