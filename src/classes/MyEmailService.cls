@@ -1,7 +1,7 @@
 global class MyEmailService implements Messaging.InboundEmailHandler {
     global Messaging.InboundEmailResult handleInboundEmail(Messaging.InboundEmail email, Messaging.InboundEnvelope envelope) {
         Messaging.InboundEmailResult result = new Messaging.InboundEmailResult();
-        //Test 02
+        //Test 03
         //System.debug('Subject : '+email.subject);
         List<Messaging.InboundEmail.BinaryAttachment> binaryAttachments = email.binaryAttachments;
         if (binaryAttachments != null && binaryAttachments.size() > 0) {
