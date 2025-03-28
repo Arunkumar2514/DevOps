@@ -157,15 +157,15 @@ jobs:
         if: github.event_name == 'pull_request' && env.Target_Org != 'NoOrg'
         shell: bash
         run: |
-          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -l NoTestRun --dry-run -w 1000
-          sfdx project deploy report -r --json > deploymentOut.json
+          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -l NoTestRun --dry-run -w 1000 --json > deploymentOut.json
+          sfdx project deploy report -r --json > deploymentOut.json 
         continue-on-error: true
 
       - name: Deployment Using SFDX MDAPI
         if: github.event_name == 'push' && env.Target_Org != 'NoOrg'
         shell: bash
         run: |
-          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -w 1000
+          sfdx project deploy start --manifest delta/package/package.xml -o $Target_Org -w 1000 
           sfdx project deploy report -r --json > deploymentOut.json
         continue-on-error: true  
 
