@@ -50,7 +50,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               branch: branchName,
-              status: 'failed',
+              status: 'success',
               per_page: 1
             });
 
