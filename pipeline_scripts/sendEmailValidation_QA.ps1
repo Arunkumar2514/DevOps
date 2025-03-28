@@ -211,7 +211,7 @@ $from    =  $env:USERNAME
 $mail = New-Object System.Net.Mail.Mailmessage $from, $to, $subject, $body
 $mail.cc.Add($Cc)
 $mail.IsBodyHTML=$true
-$server = "smtp.office365.com"
+$server = "smtp.gmail.com"
 $port   = 587
 $smtp = New-Object System.Net.Mail.SMTPClient $server,$port
 $smtp.EnableSsl = $true
