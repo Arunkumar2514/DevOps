@@ -26,7 +26,7 @@ export default class PDFParserComponent extends LightningElement {
         })
 
       }
-      // setTimeout(() => {
+      // setTimeout(() => {test 
       //   console.log('Timeout completed',this.parserDocumentId);
       //   if(this.parserDocumentId){
       //     getDcParserText({ docId : this.parserDocumentId })
