@@ -1,10 +1,10 @@
 $output = Get-Content .\deploymentOut.json | ConvertFrom-Json
 
-$copmponentSuccess = $output[0].result.details.componentSuccesses
-$copmponentFailures = $output[0].result.details.componentFailures
+$componentSuccess = $output[0].result.details.componentSuccesses
+$componentFailures = $output[0].result.details.componentFailures
 
-$successCount = $copmponentSuccess.Count
-$failureCount = $copmponentFailures.Count
+$successCount = $componentSuccess.Count
+$failureCount = $componentFailures.Count
 
 for($i=0; $i -lt $successCount; $i++){
     $output[0].result.details.componentSuccesses[$i].success = "Success"
